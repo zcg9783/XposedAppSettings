@@ -27,7 +27,6 @@ public class onPackageLoad {
 
     static void screenSettings(final XC_LoadPackage.LoadPackageParam lpparam, XSharedPreferences prefs) {
         if (Core.isActive(prefs, lpparam.packageName)) {
-            // Override settings used when loading resources
             try {
                 XposedHelpers.findAndHookMethod(ContextWrapper.class, "attachBaseContext",
                         Context.class, new XC_MethodHook() {
@@ -49,13 +48,10 @@ public class onPackageLoad {
                                 newMetrics = res.getDisplayMetrics();
                             }
 
-                            // Workaround for KitKat. The keyguard is a different package now but runs in the
-                            // same process as SystemUI and displays as main package
                             if (packageName.equals("com.android.keyguard")) {
                                 packageName = onZygoteLoad.SYSTEMUI_PACKAGE;
                             }
 
-                            // settings related to the density etc. are calculated for the running app...
                             if (packageName != null) {
                                 int screen = prefs.getInt(packageName + Constants.PREF_SCREEN,
                                         prefs.getInt(Constants.PREF_DEFAULT + Constants.PREF_SCREEN, 0));
@@ -63,8 +59,7 @@ public class onPackageLoad {
                                     screen = 0;
                                 }
 
-                                int dpi = prefs.getInt(packageName + Constants.PREF_DPI,
-                                        prefs.getInt(Constants.PREF_DEFAULT + Constants.PREF_DPI, 0));
+                                int dpi = Core.getEffectiveDpi(packageName, prefs);
                                 int fontScale = prefs.getInt(packageName + Constants.PREF_FONT_SCALE,
                                         prefs.getInt(Constants.PREF_DEFAULT + Constants.PREF_FONT_SCALE, 0));
                                 int swdp = Constants.swdp[screen];
@@ -91,7 +86,6 @@ public class onPackageLoad {
                                     config.fontScale = fontScale / 100.0f;
                                 }
 
-                                // https://github.com/solohsu/XposedAppLocale
                                 Locale loc = getPackageSpecificLocale(prefs, packageName);
 
                                 if (loc != null) {
@@ -112,7 +106,6 @@ public class onPackageLoad {
                 XposedBridge.log(t);
             }
 
-            // Override the default Locale if one is defined (not res-related, here)
             Locale packageLocale = getPackageSpecificLocale(prefs, lpparam.packageName);
             if (packageLocale != null) {
                 Locale.setDefault(packageLocale);
@@ -123,19 +116,15 @@ public class onPackageLoad {
     static void soundPool(XC_LoadPackage.LoadPackageParam lpparam, XSharedPreferences prefs) {
         if (Core.isActive(prefs, lpparam.packageName, Constants.PREF_MUTE)) {
             try {
-                // Hook the AudioTrack API
                 XposedHelpers.findAndHookMethod(AudioTrack.class, "play",
                         XC_MethodReplacement.returnConstant(null));
 
-                // Hook the JetPlayer API
                 XposedHelpers.findAndHookMethod(JetPlayer.class, "play",
                         XC_MethodReplacement.returnConstant(null));
 
-                // Hook the MediaPlayer API
                 XC_MethodHook displayHook = new XC_MethodHook() {
                     @Override
                     protected void beforeHookedMethod(MethodHookParam param) {
-                        // Detect if video will be used for this media
                         if (param.args[0] != null) {
                             XposedHelpers.setAdditionalInstanceField(param.thisObject, "HasVideo", true);
                         } else {
@@ -149,16 +138,13 @@ public class onPackageLoad {
                     @Override
                     protected void beforeHookedMethod(MethodHookParam param) {
                         if (XposedHelpers.getAdditionalInstanceField(param.thisObject, "HasVideo") != null) {
-                            // Video will be used - still start the media but with muted volume
                             ((MediaPlayer) param.thisObject).setVolume(0, 0);
                         } else {
-                            // No video - skip starting to play the media altogether
                             param.setResult(null);
                         }
                     }
                 });
 
-                // Hook the SoundPool API
                 XposedHelpers.findAndHookMethod(SoundPool.class, "play", int.class,
                         float.class, float.class, int.class, int.class, float.class,
                         XC_MethodReplacement.returnConstant(0));
